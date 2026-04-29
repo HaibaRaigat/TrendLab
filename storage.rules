@@ -1,0 +1,19 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // Videos: public read, write only with size/type restrictions
+    match /videos/{allPaths=**} {
+      allow read: if true;
+      allow write: if request.resource.size < 500 * 1024 * 1024  // 500MB max
+                   && request.resource.contentType.matches('video/.*');
+    }
+
+    // Channel images: public read, reasonable size
+    match /channels/{allPaths=**} {
+      allow read: if true;
+      allow write: if request.resource.size < 5 * 1024 * 1024  // 5MB max
+                   && request.resource.contentType.matches('image/.*');
+    }
+  }
+}

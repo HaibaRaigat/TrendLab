@@ -1,0 +1,41 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Videos: public read, no direct write (API only)
+    match /videos/{videoId} {
+      allow read: if true;
+      allow create: if true; // Controlled by upload flow
+      allow update: if request.resource.data.keys().hasOnly(['likes', 'archived', 'archiveId'])
+                    || request.auth != null;
+      allow delete: if request.auth != null;
+    }
+
+    // Likes sub-collection: prevent duplicates
+    match /videos/{videoId}/likes/{fingerprint} {
+      allow read: if true;
+      allow create: if request.auth == null
+                    && !exists(/databases/$(database)/documents/videos/$(videoId)/likes/$(fingerprint));
+      allow delete: if false;
+    }
+
+    // Channels: public read, create allowed
+    match /channels/{channelId} {
+      allow read: if true;
+      allow create: if true;
+      allow update, delete: if request.auth != null;
+    }
+
+    // Trends: public read, admin only write
+    match /trends/{trendId} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+
+    // Archives: public read, admin only write
+    match /archives/{archiveId} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+  }
+}

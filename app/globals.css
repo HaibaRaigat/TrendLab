@@ -1,0 +1,284 @@
+@import url('https://fonts.googleapis.com/css2?family=Poppins:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,400&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --primary: #49A546;
+  --primary-dark: #1B6121;
+  --primary-light: #6bc668;
+  --primary-glow: rgba(73, 165, 70, 0.3);
+  --surface: #0a0a0a;
+  --surface-2: #111111;
+  --surface-3: #1a1a1a;
+  --text: #ffffff;
+  --text-muted: rgba(255, 255, 255, 0.6);
+  --border: rgba(255, 255, 255, 0.08);
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  scroll-behavior: smooth;
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  background: var(--surface);
+  color: var(--text);
+  font-family: 'Poppins', system-ui, sans-serif;
+  overscroll-behavior: none;
+  overflow-x: hidden;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 4px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--surface);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--primary);
+  border-radius: 2px;
+}
+
+/* Reels container */
+.reels-container {
+  height: 100dvh;
+  overflow-y: scroll;
+  scroll-snap-type: y mandatory;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.reels-container::-webkit-scrollbar {
+  display: none;
+}
+
+.reel-item {
+  height: 100dvh;
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
+  position: relative;
+}
+
+/* Video player */
+video {
+  object-fit: cover;
+  width: 100%;
+  height: 100%;
+}
+
+/* Gradient overlays */
+.gradient-top {
+  background: linear-gradient(to bottom, rgba(0, 0, 0, 0.7) 0%, transparent 40%);
+}
+
+.gradient-bottom {
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.85) 0%, transparent 60%);
+}
+
+/* Shimmer loader */
+.shimmer {
+  background: linear-gradient(90deg,
+      var(--surface-3) 0%,
+      var(--surface-2) 50%,
+      var(--surface-3) 100%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+/* Glow effects */
+.glow-primary {
+  box-shadow: 0 0 20px var(--primary-glow);
+}
+
+.text-glow {
+  text-shadow: 0 0 20px var(--primary-glow);
+}
+
+/* Button styles */
+.btn-primary {
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+  color: white;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 20px var(--primary-glow);
+}
+
+.btn-primary:active {
+  transform: translateY(0);
+}
+
+/* Glass morphism */
+.glass {
+  background: rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.glass-dark {
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+/* Page transitions */
+.page-enter {
+  animation: fade-in 0.3s ease-out;
+}
+
+/* Input styles */
+input,
+textarea,
+select {
+  outline: none;
+}
+
+input:focus,
+textarea:focus,
+select:focus {
+  ring: none;
+}
+
+/* Like button animation */
+@keyframes heartBeat {
+  0% {
+    transform: scale(1);
+  }
+
+  14% {
+    transform: scale(1.3);
+  }
+
+  28% {
+    transform: scale(1);
+  }
+
+  42% {
+    transform: scale(1.3);
+  }
+
+  70% {
+    transform: scale(1);
+  }
+}
+
+.like-animate {
+  animation: heartBeat 0.6s ease-in-out;
+}
+
+/* Floating particles */
+.particle {
+  position: absolute;
+  pointer-events: none;
+  animation: float-up 1s ease-out forwards;
+}
+
+@keyframes float-up {
+  0% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+
+  100% {
+    opacity: 0;
+    transform: translateY(-80px) scale(0.5);
+  }
+}
+
+/* Trend badge */
+.trend-badge {
+  background: linear-gradient(135deg, var(--primary-dark), var(--primary));
+}
+
+/* Upload progress */
+.upload-progress {
+  background: linear-gradient(90deg, var(--primary-dark), var(--primary), var(--primary-light));
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+/* Responsive video wrapper */
+.video-wrapper {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  max-width: 500px;
+  margin: 0 auto;
+}
+
+@media (min-width: 768px) {
+  .reels-container {
+    display: flex;
+    justify-content: center;
+  }
+
+  .reel-item {
+    max-width: 400px;
+    width: 100%;
+  }
+}
+
+/* Archive card */
+.archive-card {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  transition: all 0.3s ease;
+}
+
+.archive-card:hover {
+  border-color: var(--primary);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 30px rgba(73, 165, 70, 0.15);
+}
+
+/* Admin panel */
+.admin-sidebar {
+  background: var(--surface-2);
+  border-right: 1px solid var(--border);
+}
+
+/* Loading dots */
+@keyframes loading-dots {
+
+  0%,
+  20% {
+    opacity: 0;
+  }
+
+  50% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 0;
+  }
+}
+
+.loading-dot:nth-child(1) {
+  animation: loading-dots 1.4s 0s infinite;
+}
+
+.loading-dot:nth-child(2) {
+  animation: loading-dots 1.4s 0.2s infinite;
+}
+
+.loading-dot:nth-child(3) {
+  animation: loading-dots 1.4s 0.4s infinite;
+}
