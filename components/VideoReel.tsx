@@ -1,12 +1,14 @@
 'use client'
 
 import { useState, useRef, useEffect, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Play, Pause, Volume2, VolumeX, Download, CheckCircle } from 'lucide-react'
-import Image from 'next/image'
 import LikeButton from './LikeButton'
 import { VideoWithChannel } from '@/types'
 import { downloadVideo, timeAgo } from '@/lib/utils'
+import { collection, query, where, getDocs } from 'firebase/firestore'
+import { getDb } from '@/lib/firebase'
 
 interface VideoReelProps {
   video: VideoWithChannel
@@ -15,64 +17,66 @@ interface VideoReelProps {
 }
 
 export default function VideoReel({ video, isActive, index }: VideoReelProps) {
+  const router = useRouter()
   const videoRef = useRef<HTMLVideoElement>(null)
   const [isPlaying, setIsPlaying] = useState(false)
-  // نحاول البدء بالصوت تلبية لطلب المستخدم. إذا منع المتصفح ذلك، سنعيده صامتاً.
-  const [isMuted, setIsMuted] = useState(false)
+  // Always start muted — browsers block autoplay with sound before user interaction
+  const [isMuted, setIsMuted] = useState(true)
   const [progress, setProgress] = useState(0)
   const [showPlayIcon, setShowPlayIcon] = useState(false)
   const [isDownloading, setIsDownloading] = useState(false)
   const [downloaded, setDownloaded] = useState(false)
   const [showHeart, setShowHeart] = useState(false)
   const [isLoaded, setIsLoaded] = useState(false)
+  const [channelUserId, setChannelUserId] = useState<string | null>(null)
   const doubleTapTimer = useRef<NodeJS.Timeout | null>(null)
   const tapCount = useRef(0)
 
-  // --- المنطق الجديد للتحكم في التشغيل والصوت ---
+  // Fetch the userId associated with this channel for profile navigation
+  useEffect(() => {
+    if (!video.channel?.id) return
+    const fetchUserId = async () => {
+      try {
+        const db = getDb()
+        const snap = await getDocs(
+          query(collection(db, 'users'), where('channelId', '==', video.channel!.id))
+        )
+        if (!snap.empty) {
+          setChannelUserId(snap.docs[0].id)
+        }
+      } catch { /* ignore */ }
+    }
+    fetchUserId()
+  }, [video.channel?.id])
+
+  // --- Play/Pause logic ---
   useEffect(() => {
     const vid = videoRef.current
     if (!vid) return
 
     if (isActive) {
-      // 1. تصفير الوقت للبدء من البداية تماماً
       vid.currentTime = 0
+      // Always play muted first — browsers allow muted autoplay without user gesture
+      vid.muted = true
 
-      // تأكد من ضبط الصوت حسب الحالة الحالية للبدء
-      vid.muted = isMuted
-
-      // 2. محاولة التشغيل
       const playPromise = vid.play()
-
       if (playPromise !== undefined) {
         playPromise
           .then(() => {
             setIsPlaying(true)
-            // المتصفح سمح بالتشغيل التلقائي مع الصوت (أو حسب حالة isMuted)
+            // After autoplay succeeds, restore the user's mute preference
+            vid.muted = isMuted
           })
-          .catch((error) => {
-            console.log("Autoplay issue (sound might be blocked):", error)
-            
-            // ننتظر حتى التفاعل الأول (عندما يضغط للدخول من شاشة SplashScreen) لنشغله بصوته الطبيعي
-            const handleFirstInteraction = () => {
-              vid.muted = false
-              setIsMuted(false)
-              vid.play()
-                .then(() => setIsPlaying(true))
-                .catch(console.error)
-            }
-            
-            window.addEventListener('touchstart', handleFirstInteraction, { once: true })
-            window.addEventListener('click', handleFirstInteraction, { once: true })
+          .catch((err) => {
+            console.log('Autoplay blocked:', err)
           })
       }
     } else {
-      // 3. إيقاف الفيديو السابق تماماً وتصفيره
       vid.pause()
       vid.currentTime = 0
       setIsPlaying(false)
     }
 
-    // تنظيف عند حذف المكون
     return () => {
       vid.pause()
       vid.currentTime = 0
@@ -151,6 +155,13 @@ export default function VideoReel({ video, isActive, index }: VideoReelProps) {
     setIsMuted(newMuteStatus)
   }
 
+  const handleProfileClick = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (channelUserId) {
+      router.push(`/profile/${channelUserId}`)
+    }
+  }
+
   return (
     <div className="relative bg-black overflow-hidden h-full w-full" style={{ touchAction: 'pan-y' }}>
       {/* Video element */}
@@ -202,7 +213,21 @@ export default function VideoReel({ video, isActive, index }: VideoReelProps) {
         )}
       </AnimatePresence>
 
-      {/* UI Elements */}
+      {/* Heart animation on double tap */}
+      <AnimatePresence>
+        {showHeart && (
+          <motion.div
+            initial={{ scale: 0, opacity: 1 }}
+            animate={{ scale: 1.5, opacity: 0 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-0 flex items-center justify-center pointer-events-none z-30"
+          >
+            <span className="text-7xl">❤️</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* UI Elements - Top */}
       <div className="absolute top-0 left-0 right-0 z-20 flex items-center justify-between px-4 pt-12 pb-4">
         <div className="flex items-center gap-2">
           <img
@@ -228,7 +253,12 @@ export default function VideoReel({ video, isActive, index }: VideoReelProps) {
 
       {/* Right Sidebar */}
       <div className="absolute right-4 bottom-28 z-20 flex flex-col items-center gap-5">
-        <div className="relative">
+        {/* Profile image — clickable */}
+        <motion.button
+          whileTap={{ scale: 0.9 }}
+          onClick={handleProfileClick}
+          className="relative"
+        >
           <div className="w-12 h-12 rounded-full border-2 border-primary overflow-hidden bg-surface-3">
             {video.channel?.profileImageURL ? (
               <img src={video.channel.profileImageURL} alt={video.channel.name} className="w-full h-full object-cover" />
@@ -238,7 +268,12 @@ export default function VideoReel({ video, isActive, index }: VideoReelProps) {
               </div>
             )}
           </div>
-        </div>
+          {channelUserId && (
+            <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-5 h-5 rounded-full bg-primary flex items-center justify-center border-2 border-surface-3">
+              <span className="text-white text-[9px] font-bold">+</span>
+            </div>
+          )}
+        </motion.button>
 
         <LikeButton videoId={video.id} initialLikes={video.likes} />
 
@@ -257,9 +292,16 @@ export default function VideoReel({ video, isActive, index }: VideoReelProps) {
             🔥 {video.trendTag}
           </span>
         </div>
-        <div className="mb-2">
+        <div className="mb-1">
           <h3 className="text-white font-bold text-base">@{video.channel?.name || 'Unknown'}</h3>
         </div>
+        {/* Show members */}
+        {video.channel?.members && video.channel.members.length > 0 && (
+          <p className="text-white/50 text-xs mb-1">
+            {video.channel.type === 'individual' ? '' : '👥 '}
+            {video.channel.members.join(' · ')}
+          </p>
+        )}
         {video.description && <p className="text-white/80 text-sm line-clamp-2 mb-2">{video.description}</p>}
         <p className="text-white/40 text-[10px]">{timeAgo(video.timestamp)}</p>
 

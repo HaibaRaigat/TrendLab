@@ -45,6 +45,29 @@ export interface VideoWithChannel extends Video {
   channel?: Channel
 }
 
+export interface User {
+  id: string
+  identifier: string
+  type: 'individual' | 'group'
+  channelId: string
+  createdAt: Date | { seconds: number; nanoseconds: number }
+}
+
+export interface Follow {
+  id: string
+  followerId: string
+  followingId: string
+  createdAt: Date | { seconds: number; nanoseconds: number }
+}
+
+export interface AuthUser {
+  id: string
+  identifier: string
+  type: 'individual' | 'group'
+  channelId: string
+  channel?: Channel
+}
+
 export const STUDENTS_LIST = [
   "AIT ALI OUBARI OUSSAMA", "ARBAA HANANE", "BERHIL IBTISSAM", "BOUGLIME KAWTHAR", 
         "BOUHDOUD FADWA", "BOULHILAT FATIMA ZAHRA", "BOUROUAIS NAJAT", "DLIMI HASNA", 

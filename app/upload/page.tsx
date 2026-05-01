@@ -1,10 +1,12 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
 import Navigation from '@/components/Navigation'
 import UploadModal from '@/components/UploadModal'
 import { Video, Sparkles, Users, TrendingUp } from 'lucide-react'
+import { useAuth } from '@/lib/auth-context'
 
 const features = [
   {
@@ -31,6 +33,22 @@ const features = [
 
 export default function UploadPage() {
   const [modalOpen, setModalOpen] = useState(false)
+  const { user, isLoading } = useAuth()
+  const router = useRouter()
+
+  useEffect(() => {
+    if (!isLoading && !user) {
+      router.push('/login')
+    }
+  }, [user, isLoading, router])
+
+  if (isLoading || !user) {
+    return (
+      <div className="min-h-dvh bg-surface flex items-center justify-center">
+        <div className="w-8 h-8 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-dvh bg-surface pb-24">

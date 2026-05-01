@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next'
 import SplashScreen from '@/components/SplashScreen'
+import { AuthProvider } from '@/lib/auth-context'
 import './globals.css'
 
 export const metadata: Metadata = {
@@ -14,6 +15,9 @@ export const metadata: Metadata = {
     capable: true,
     statusBarStyle: 'black-translucent',
     title: 'TrendLab',
+  },
+  other: {
+    'mobile-web-app-capable': 'yes',
   },
 
   // 2. إضافة الأيقونات الجديدة لضمان ظهورها بشكل احترافي
@@ -51,12 +55,15 @@ export default function RootLayout({
   return (
     <html lang="fr" className="dark">
       <head>
+        <meta name="mobile-web-app-capable" content="yes" />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
       </head>
       <body className="antialiased">
-        <SplashScreen />
-        {children}
+        <AuthProvider>
+          <SplashScreen />
+          {children}
+        </AuthProvider>
       </body>
     </html>
   )

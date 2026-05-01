@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   Plus, Archive, Trash2, LogOut, TrendingUp,
   Video, Check, AlertCircle, Loader2, Hash,
-  Calendar, ChevronRight, Eye, EyeOff
+  Calendar, Eye, EyeOff, Users, User
 } from 'lucide-react'
 import {
   collection, addDoc, getDocs, query, orderBy,
@@ -24,26 +24,39 @@ interface Trend {
   videoCount?: number
 }
 
-interface Video {
+interface AdminVideo {
   id: string
   trendId: string
   trendTag: string
   likes: number
   channelId: string
   timestamp: any
+  channelName?: string
 }
 
-type AdminTab = 'trends' | 'archive' | 'videos'
+interface AdminUser {
+  id: string
+  identifier: string
+  type: 'individual' | 'group'
+  channelId: string
+  createdAt: any
+  channelName?: string
+  videoCount?: number
+}
+
+type AdminTab = 'trends' | 'archive' | 'videos' | 'users'
 
 export default function AdminPanel({ onLogout }: { onLogout: () => void }) {
   const [tab, setTab] = useState<AdminTab>('trends')
   const [trends, setTrends] = useState<Trend[]>([])
-  const [videos, setVideos] = useState<Video[]>([])
+  const [videos, setVideos] = useState<AdminVideo[]>([])
+  const [users, setUsers] = useState<AdminUser[]>([])
   const [newTrendTag, setNewTrendTag] = useState('')
   const [newWeekLabel, setNewWeekLabel] = useState(getWeekLabel())
   const [isLoading, setIsLoading] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [archivingTrendId, setArchivingTrendId] = useState<string | null>(null)
+  const [deletingUserId, setDeletingUserId] = useState<string | null>(null)
 
   useEffect(() => {
     loadData()
@@ -58,15 +71,30 @@ export default function AdminPanel({ onLogout }: { onLogout: () => void }) {
     setIsLoading(true)
     try {
       const db = getDb()
-      const [trendsSnap, videosSnap] = await Promise.all([
+      const [trendsSnap, videosSnap, usersSnap, channelsSnap] = await Promise.all([
         getDocs(query(collection(db, 'trends'), orderBy('createdAt', 'desc'))),
         getDocs(query(collection(db, 'videos'), orderBy('likes', 'desc'))),
+        getDocs(query(collection(db, 'users'), orderBy('createdAt', 'desc'))),
+        getDocs(collection(db, 'channels')),
       ])
 
-      const trendsData = trendsSnap.docs.map(d => ({ id: d.id, ...d.data() })) as Trend[]
-      const videosData = videosSnap.docs.map(d => ({ id: d.id, ...d.data() })) as Video[]
+      const channelMap = new Map<string, string>()
+      channelsSnap.docs.forEach(d => channelMap.set(d.id, d.data().name || ''))
 
-      // Count videos per trend
+      const trendsData = trendsSnap.docs.map(d => ({ id: d.id, ...d.data() })) as Trend[]
+      const videosData = videosSnap.docs.map(d => ({
+        id: d.id,
+        ...d.data(),
+        channelName: channelMap.get(d.data().channelId) || 'Unknown',
+      })) as AdminVideo[]
+
+      const usersData = usersSnap.docs.map(d => ({
+        id: d.id,
+        ...d.data(),
+        channelName: channelMap.get(d.data().channelId) || 'Unknown',
+        videoCount: videosData.filter(v => v.channelId === d.data().channelId).length,
+      })) as AdminUser[]
+
       const trendsWithCount = trendsData.map(t => ({
         ...t,
         videoCount: videosData.filter(v => v.trendId === t.id).length,
@@ -74,6 +102,7 @@ export default function AdminPanel({ onLogout }: { onLogout: () => void }) {
 
       setTrends(trendsWithCount)
       setVideos(videosData)
+      setUsers(usersData)
     } catch (err) {
       console.error('Failed to load data:', err)
     } finally {
@@ -86,7 +115,6 @@ export default function AdminPanel({ onLogout }: { onLogout: () => void }) {
     setIsLoading(true)
     try {
       const db = getDb()
-      // Deactivate all other trends
       const batch = writeBatch(db)
       trends.forEach(t => {
         if (t.active) batch.update(doc(db, 'trends', t.id), { active: false })
@@ -142,7 +170,6 @@ export default function AdminPanel({ onLogout }: { onLogout: () => void }) {
 
       const batch = writeBatch(db)
 
-      // Create archive entry
       const archiveRef = await addDoc(collection(db, 'archives'), {
         trendId: trend.id,
         trendTag: trend.tag,
@@ -151,7 +178,6 @@ export default function AdminPanel({ onLogout }: { onLogout: () => void }) {
         createdAt: serverTimestamp(),
       })
 
-      // Mark videos as archived
       trendVideos.forEach(v => {
         batch.update(doc(db, 'videos', v.id), {
           archived: true,
@@ -159,9 +185,7 @@ export default function AdminPanel({ onLogout }: { onLogout: () => void }) {
         })
       })
 
-      // Deactivate trend
       batch.update(doc(db, 'trends', trend.id), { active: false })
-
       await batch.commit()
 
       showMessage('success', `${trendVideos.length} videos archived successfully!`)
@@ -186,10 +210,51 @@ export default function AdminPanel({ onLogout }: { onLogout: () => void }) {
     }
   }
 
+  const deleteUser = async (user: AdminUser) => {
+    if (!confirm(`Delete account "${user.identifier}" and ALL their videos? This cannot be undone.`)) return
+    setDeletingUserId(user.id)
+    try {
+      const db = getDb()
+      const batch = writeBatch(db)
+
+      // Delete all videos by this channel
+      const userVideos = videos.filter(v => v.channelId === user.channelId)
+      userVideos.forEach(v => batch.delete(doc(db, 'videos', v.id)))
+
+      // Delete likes for each video
+      for (const v of userVideos) {
+        const likesSnap = await getDocs(collection(db, 'videos', v.id, 'likes'))
+        likesSnap.docs.forEach(l => batch.delete(doc(db, 'videos', v.id, 'likes', l.id)))
+      }
+
+      // Delete follows (as follower or following)
+      const followsAsFollower = await getDocs(query(collection(db, 'follows'), where('followerId', '==', user.id)))
+      const followsAsFollowing = await getDocs(query(collection(db, 'follows'), where('followingId', '==', user.id)))
+      followsAsFollower.docs.forEach(f => batch.delete(doc(db, 'follows', f.id)))
+      followsAsFollowing.docs.forEach(f => batch.delete(doc(db, 'follows', f.id)))
+
+      // Delete channel
+      batch.delete(doc(db, 'channels', user.channelId))
+
+      // Delete user
+      batch.delete(doc(db, 'users', user.id))
+
+      await batch.commit()
+      showMessage('success', `Account "${user.identifier}" and ${userVideos.length} videos deleted.`)
+      loadData()
+    } catch (err) {
+      console.error('Delete user failed:', err)
+      showMessage('error', 'Failed to delete account.')
+    } finally {
+      setDeletingUserId(null)
+    }
+  }
+
   const tabs: { id: AdminTab; label: string; icon: any }[] = [
     { id: 'trends', label: 'Trends', icon: TrendingUp },
     { id: 'archive', label: 'Archive', icon: Archive },
     { id: 'videos', label: 'Videos', icon: Video },
+    { id: 'users', label: 'Users', icon: Users },
   ]
 
   return (
@@ -241,13 +306,13 @@ export default function AdminPanel({ onLogout }: { onLogout: () => void }) {
       </AnimatePresence>
 
       {/* Tab Navigation */}
-      <div className="flex border-b border-white/10 mt-3 mx-4 gap-1">
+      <div className="flex border-b border-white/10 mt-3 mx-4 gap-1 overflow-x-auto">
         {tabs.map(({ id, label, icon: Icon }) => (
           <button
             key={id}
             onClick={() => setTab(id)}
             className={cn(
-              'flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium rounded-t-xl transition-all',
+              'flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium rounded-t-xl transition-all whitespace-nowrap',
               tab === id
                 ? 'bg-primary/10 text-primary border-b-2 border-primary'
                 : 'text-white/50 hover:text-white'
@@ -255,6 +320,11 @@ export default function AdminPanel({ onLogout }: { onLogout: () => void }) {
           >
             <Icon size={14} />
             {label}
+            {id === 'users' && users.length > 0 && (
+              <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded-full bg-primary/20 text-primary font-bold">
+                {users.length}
+              </span>
+            )}
           </button>
         ))}
       </div>
@@ -265,7 +335,6 @@ export default function AdminPanel({ onLogout }: { onLogout: () => void }) {
         {/* TRENDS TAB */}
         {tab === 'trends' && (
           <div className="space-y-4">
-            {/* Create trend */}
             <div className="bg-surface-2 rounded-2xl p-4 border border-white/10">
               <h3 className="text-white font-semibold text-sm mb-3 flex items-center gap-2">
                 <Plus size={15} className="text-primary" />
@@ -314,7 +383,6 @@ export default function AdminPanel({ onLogout }: { onLogout: () => void }) {
               </div>
             </div>
 
-            {/* Trends list */}
             <div>
               <h3 className="text-white/50 text-xs font-medium uppercase tracking-wider mb-2 px-1">
                 All Trends ({trends.length})
@@ -414,7 +482,9 @@ export default function AdminPanel({ onLogout }: { onLogout: () => void }) {
               <div key={video.id} className="bg-surface-2 rounded-xl p-3 border border-white/10 flex items-center justify-between gap-2">
                 <div className="flex-1 min-w-0">
                   <p className="text-white text-sm font-medium truncate">#{video.trendTag}</p>
-                  <p className="text-white/40 text-xs">❤️ {video.likes} likes</p>
+                  <p className="text-white/40 text-xs">
+                    📺 {video.channelName || 'Unknown'} · ❤️ {video.likes}
+                  </p>
                 </div>
                 <button
                   onClick={() => deleteVideo(video.id)}
@@ -428,6 +498,63 @@ export default function AdminPanel({ onLogout }: { onLogout: () => void }) {
               <div className="text-center py-12 text-white/30">
                 <Video size={40} className="mx-auto mb-2 opacity-30" />
                 <p>No videos yet</p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* USERS TAB */}
+        {tab === 'users' && (
+          <div className="space-y-2">
+            <p className="text-white/40 text-xs px-1">{users.length} registered accounts</p>
+            {users.map(user => (
+              <div key={user.id} className="bg-surface-2 rounded-xl p-3 border border-white/10">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-3 flex-1 min-w-0">
+                    <div className={cn(
+                      'w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0',
+                      user.type === 'individual' ? 'bg-primary/10' : 'bg-blue-500/10'
+                    )}>
+                      {user.type === 'individual'
+                        ? <User size={16} className="text-primary" />
+                        : <Users size={16} className="text-blue-400" />
+                      }
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-white font-semibold text-sm">@{user.identifier}</span>
+                        <span className={cn(
+                          'text-[10px] px-1.5 py-0.5 rounded-full border font-medium',
+                          user.type === 'individual'
+                            ? 'bg-primary/10 border-primary/30 text-primary'
+                            : 'bg-blue-500/10 border-blue-500/30 text-blue-400'
+                        )}>
+                          {user.type}
+                        </span>
+                      </div>
+                      <p className="text-white/40 text-xs truncate">
+                        📺 {user.channelName} · 🎬 {user.videoCount} reels
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => deleteUser(user)}
+                    disabled={deletingUserId === user.id}
+                    className="p-2 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors flex-shrink-0 disabled:opacity-50"
+                    title="Delete account and all videos"
+                  >
+                    {deletingUserId === user.id
+                      ? <Loader2 size={14} className="animate-spin" />
+                      : <Trash2 size={14} />
+                    }
+                  </button>
+                </div>
+              </div>
+            ))}
+            {users.length === 0 && (
+              <div className="text-center py-12 text-white/30">
+                <Users size={40} className="mx-auto mb-2 opacity-30" />
+                <p>No registered accounts yet</p>
               </div>
             )}
           </div>

@@ -3,12 +3,12 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  X, Upload, Video, ChevronDown, Check, Search,
-  AlertCircle, Loader2, Users, User
+  X, Upload, Video, Check,
+  AlertCircle, Loader2
 } from 'lucide-react'
 import { collection, addDoc, getDocs, query, where, orderBy, serverTimestamp } from 'firebase/firestore'
 import { getDb } from '@/lib/firebase'
-import { STUDENTS_LIST } from '@/types'
+import { useAuth } from '@/lib/auth-context'
 import { cn } from '@/lib/utils'
 
 interface Trend {
@@ -23,28 +23,21 @@ interface UploadModalProps {
   onClose: () => void
 }
 
-type Step = 'video' | 'channel' | 'details' | 'uploading' | 'done'
+type Step = 'video' | 'details' | 'uploading' | 'done'
 
 export default function UploadModal({ isOpen, onClose }: UploadModalProps) {
+  const { user } = useAuth()
   const [step, setStep] = useState<Step>('video')
   const [videoFile, setVideoFile] = useState<File | null>(null)
   const [videoPreview, setVideoPreview] = useState<string | null>(null)
   const [videoDuration, setVideoDuration] = useState(0)
-  const [channelType, setChannelType] = useState<'individual' | 'group'>('individual')
-  const [channelName, setChannelName] = useState('')
-  const [profileImage, setProfileImage] = useState<File | null>(null)
-  const [profilePreview, setProfilePreview] = useState<string | null>(null)
-  const [selectedMembers, setSelectedMembers] = useState<string[]>([])
-  const [memberSearch, setMemberSearch] = useState('')
   const [trends, setTrends] = useState<Trend[]>([])
   const [selectedTrend, setSelectedTrend] = useState<Trend | null>(null)
   const [description, setDescription] = useState('')
   const [uploadProgress, setUploadProgress] = useState(0)
   const [error, setError] = useState('')
-  const [existingChannelId, setExistingChannelId] = useState<string | null>(null)
 
   const videoInputRef = useRef<HTMLInputElement>(null)
-  const imageInputRef = useRef<HTMLInputElement>(null)
   const videoPreviewRef = useRef<HTMLVideoElement>(null)
 
   useEffect(() => {
@@ -59,16 +52,10 @@ export default function UploadModal({ isOpen, onClose }: UploadModalProps) {
     setVideoFile(null)
     setVideoPreview(null)
     setVideoDuration(0)
-    setChannelName('')
-    setProfileImage(null)
-    setProfilePreview(null)
-    setSelectedMembers([])
-    setMemberSearch('')
     setSelectedTrend(null)
     setDescription('')
     setUploadProgress(0)
     setError('')
-    setExistingChannelId(null)
   }
 
   const loadTrends = async () => {
@@ -110,23 +97,6 @@ export default function UploadModal({ isOpen, onClose }: UploadModalProps) {
     }
   }
 
-  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    setProfileImage(file)
-    setProfilePreview(URL.createObjectURL(file))
-  }
-
-  const toggleMember = (member: string) => {
-    setSelectedMembers(prev =>
-      prev.includes(member) ? prev.filter(m => m !== member) : [...prev, member]
-    )
-  }
-
-  const filteredMembers = STUDENTS_LIST.filter(m =>
-    m.toLowerCase().includes(memberSearch.toLowerCase())
-  )
-
   // ── Cloudinary upload helper ───────────────────────────────────────────────
   const uploadToCloudinary = async (
     file: File,
@@ -162,8 +132,12 @@ export default function UploadModal({ isOpen, onClose }: UploadModalProps) {
   // ────────────────────────────────────────────────────────────────────────────
 
   const handleUpload = async () => {
-    if (!videoFile || !selectedTrend || !channelName.trim()) {
-      setError('Please fill in all required fields.')
+    if (!videoFile || !selectedTrend) {
+      setError('Please select a video and trend.')
+      return
+    }
+    if (!user?.channelId) {
+      setError('You must be logged in to upload.')
       return
     }
     setStep('uploading')
@@ -172,35 +146,16 @@ export default function UploadModal({ isOpen, onClose }: UploadModalProps) {
     try {
       const db = getDb()
 
-      // Upload profile image → Cloudinary
-      let profileImageURL = ''
-      if (profileImage) {
-        profileImageURL = await uploadToCloudinary(profileImage, 'image')
-      }
-
-      // Create or get channel — Firestore unchanged
-      let channelId = existingChannelId
-      if (!channelId) {
-        const channelDoc = await addDoc(collection(db, 'channels'), {
-          name: channelName.trim(),
-          profileImageURL,
-          members: channelType === 'individual' ? [channelName.trim()] : selectedMembers,
-          type: channelType,
-          createdAt: serverTimestamp(),
-        })
-        channelId = channelDoc.id
-      }
-
       // Upload video → Cloudinary (with live progress)
       const videoURL = await uploadToCloudinary(videoFile, 'video', (pct) =>
         setUploadProgress(pct)
       )
 
-      // Save metadata to Firestore — only the URL source changed
+      // Save metadata to Firestore — channelId from auth user
       await addDoc(collection(db, 'videos'), {
-        videoURL,   // ← Cloudinary secure_url
+        videoURL,
         likes: 0,
-        channelId,
+        channelId: user.channelId,
         trendId: selectedTrend.id,
         trendTag: selectedTrend.tag,
         description: description.trim(),
@@ -240,14 +195,12 @@ export default function UploadModal({ isOpen, onClose }: UploadModalProps) {
             <div>
               <h2 className="text-white font-bold text-lg">
                 {step === 'video' && '📹 Select Video'}
-                {step === 'channel' && '👤 Your Channel'}
                 {step === 'details' && '✨ Final Details'}
                 {step === 'uploading' && '⬆️ Uploading...'}
                 {step === 'done' && '🎉 Published!'}
               </h2>
               <p className="text-white/40 text-xs mt-0.5">
                 {step === 'video' && 'Max 3 minutes · Vertical preferred'}
-                {step === 'channel' && 'Individual or group channel'}
                 {step === 'details' && 'Add trend & description'}
                 {step === 'uploading' && `${uploadProgress}% complete`}
                 {step === 'done' && 'Your reel is live!'}
@@ -261,14 +214,31 @@ export default function UploadModal({ isOpen, onClose }: UploadModalProps) {
           {/* Step indicators */}
           {step !== 'uploading' && step !== 'done' && (
             <div className="flex items-center gap-1.5 px-5 py-3 flex-shrink-0">
-              {['video', 'channel', 'details'].map((s, i) => (
+              {['video', 'details'].map((s, i) => (
                 <div key={s} className={cn(
                   'h-1 rounded-full flex-1 transition-all duration-300',
-                  ['video', 'channel', 'details'].indexOf(step) >= i
-                    ? 'bg-primary'
-                    : 'bg-white/10'
+                  ['video', 'details'].indexOf(step) >= i ? 'bg-primary' : 'bg-white/10'
                 )} />
               ))}
+            </div>
+          )}
+
+          {/* Channel info banner (when logged in) */}
+          {user?.channel && step !== 'uploading' && step !== 'done' && (
+            <div className="mx-5 mb-0 mt-1 flex items-center gap-3 p-3 bg-primary/5 rounded-xl border border-primary/15">
+              <div className="w-9 h-9 rounded-full overflow-hidden border border-primary/40 flex-shrink-0 bg-surface-3">
+                {user.channel.profileImageURL ? (
+                  <img src={user.channel.profileImageURL} alt="" className="w-full h-full object-cover" />
+                ) : (
+                  <div className="w-full h-full bg-primary/20 flex items-center justify-center">
+                    <span className="text-primary font-bold text-sm">{user.channel.name[0]}</span>
+                  </div>
+                )}
+              </div>
+              <div>
+                <p className="text-white text-sm font-medium">{user.channel.name}</p>
+                <p className="text-white/40 text-xs">Posting as this channel</p>
+              </div>
             </div>
           )}
 
@@ -323,88 +293,6 @@ export default function UploadModal({ isOpen, onClose }: UploadModalProps) {
                   <div className="flex items-center gap-2 p-3 bg-red-500/10 rounded-xl border border-red-500/20">
                     <AlertCircle size={16} className="text-red-400 flex-shrink-0" />
                     <p className="text-red-400 text-sm">{error}</p>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* STEP: CHANNEL */}
-            {step === 'channel' && (
-              <div className="p-5 space-y-4">
-                {/* Channel type toggle */}
-                <div className="flex rounded-xl overflow-hidden border border-white/10">
-                  {(['individual', 'group'] as const).map((type) => (
-                    <button
-                      key={type}
-                      onClick={() => setChannelType(type)}
-                      className={cn(
-                        'flex-1 flex items-center justify-center gap-2 py-3 text-sm font-medium transition-all',
-                        channelType === type
-                          ? 'bg-primary text-white'
-                          : 'bg-transparent text-white/50 hover:text-white'
-                      )}
-                    >
-                      {type === 'individual' ? <User size={15} /> : <Users size={15} />}
-                      {type.charAt(0).toUpperCase() + type.slice(1)}
-                    </button>
-                  ))}
-                </div>
-
-                {/* Profile image */}
-                <div className="flex items-center gap-4">
-                  <input ref={imageInputRef} type="file" accept="image/*" className="hidden" onChange={handleImageSelect} />
-                  <button
-                    onClick={() => imageInputRef.current?.click()}
-                    className="w-16 h-16 rounded-2xl border-2 border-dashed border-white/20 hover:border-primary/50 flex items-center justify-center overflow-hidden flex-shrink-0 transition-all"
-                  >
-                    {profilePreview ? (
-                      <img src={profilePreview} alt="Profile" className="w-full h-full object-cover" />
-                    ) : (
-                      <Upload size={20} className="text-white/40" />
-                    )}
-                  </button>
-                  <div className="flex-1">
-                    <p className="text-white/60 text-xs mb-1">Channel Name *</p>
-                    <input
-                      type="text"
-                      placeholder="e.g. ExcelMasters"
-                      value={channelName}
-                      onChange={e => setChannelName(e.target.value)}
-                      className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-white text-sm placeholder-white/30 focus:border-primary/50 transition-colors"
-                    />
-                  </div>
-                </div>
-
-                {/* Members selection (group only) */}
-                {channelType === 'group' && (
-                  <div>
-                    <p className="text-white/60 text-xs mb-2">Select Members ({selectedMembers.length} selected)</p>
-                    <div className="relative mb-2">
-                      <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/30" />
-                      <input
-                        type="text"
-                        placeholder="Search students..."
-                        value={memberSearch}
-                        onChange={e => setMemberSearch(e.target.value)}
-                        className="w-full bg-white/5 border border-white/10 rounded-xl pl-9 pr-3 py-2.5 text-white text-sm placeholder-white/30 focus:border-primary/50 transition-colors"
-                      />
-                    </div>
-                    <div className="max-h-44 overflow-y-auto rounded-xl border border-white/10 divide-y divide-white/5">
-                      {filteredMembers.map(member => (
-                        <button
-                          key={member}
-                          onClick={() => toggleMember(member)}
-                          className="w-full flex items-center justify-between px-3 py-2.5 hover:bg-white/5 transition-colors text-left"
-                        >
-                          <span className="text-white text-sm">{member}</span>
-                          {selectedMembers.includes(member) && (
-                            <div className="w-5 h-5 rounded-full bg-primary flex items-center justify-center flex-shrink-0">
-                              <Check size={11} className="text-white" />
-                            </div>
-                          )}
-                        </button>
-                      ))}
-                    </div>
                   </div>
                 )}
               </div>
@@ -538,7 +426,7 @@ export default function UploadModal({ isOpen, onClose }: UploadModalProps) {
               {step !== 'video' && (
                 <button
                   onClick={() => {
-                    const steps: Step[] = ['video', 'channel', 'details']
+                    const steps: Step[] = ['video', 'details']
                     const i = steps.indexOf(step)
                     if (i > 0) setStep(steps[i - 1])
                   }}
@@ -551,11 +439,6 @@ export default function UploadModal({ isOpen, onClose }: UploadModalProps) {
                 onClick={() => {
                   if (step === 'video') {
                     if (!videoFile) { setError('Please select a video first.'); return }
-                    setError('')
-                    setStep('channel')
-                  } else if (step === 'channel') {
-                    if (!channelName.trim()) { setError('Channel name is required.'); return }
-                    if (channelType === 'group' && selectedMembers.length < 2) { setError('Select at least 2 members for a group.'); return }
                     setError('')
                     setStep('details')
                   } else if (step === 'details') {
