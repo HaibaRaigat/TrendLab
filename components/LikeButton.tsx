@@ -3,9 +3,9 @@
 import { useState, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Heart } from 'lucide-react'
-import { doc, runTransaction, increment } from 'firebase/firestore'
+import { doc, runTransaction, increment, getDoc } from 'firebase/firestore'
 import { getDb } from '@/lib/firebase'
-import { getDeviceFingerprint, hasLikedVideo, saveLikedVideo } from '@/lib/fingerprint'
+import { useAuth } from '@/lib/auth-context'
 import { formatLikes } from '@/lib/utils'
 
 interface LikeButtonProps {
@@ -21,15 +21,28 @@ interface Particle {
 }
 
 export default function LikeButton({ videoId, initialLikes, onLikeChange }: LikeButtonProps) {
+  const { user } = useAuth()
   const [liked, setLiked] = useState(false)
   const [count, setCount] = useState(initialLikes)
   const [isLoading, setIsLoading] = useState(false)
   const [particles, setParticles] = useState<Particle[]>([])
-  const [showDouble, setShowDouble] = useState(false)
 
+  // Check if the current user has already liked this video
   useEffect(() => {
-    setLiked(hasLikedVideo(videoId))
-  }, [videoId])
+    if (!user) {
+      setLiked(false)
+      return
+    }
+    const checkLike = async () => {
+      try {
+        const db = getDb()
+        const likeRef = doc(db, `videos/${videoId}/likes`, user.id)
+        const snap = await getDoc(likeRef)
+        setLiked(snap.exists())
+      } catch { /* ignore */ }
+    }
+    checkLike()
+  }, [videoId, user])
 
   useEffect(() => {
     setCount(initialLikes)
@@ -46,29 +59,21 @@ export default function LikeButton({ videoId, initialLikes, onLikeChange }: Like
   }, [])
 
   const handleLike = async () => {
-    if (liked || isLoading) return
+    if (liked || isLoading || !user) return
     setIsLoading(true)
 
+    // Optimistic update
+    setLiked(true)
+    const newCount = count + 1
+    setCount(newCount)
+    onLikeChange?.(newCount)
+    spawnParticles()
+
     try {
-      // Get device fingerprint
-      const fingerprint = await getDeviceFingerprint()
-
-      // Server-side validation
-      const validation = await fetch('/api/like', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ videoId, fingerprint, action: 'like' }),
-      })
-
-      if (!validation.ok) {
-        setIsLoading(false)
-        return
-      }
-
-      // Update Firestore
       const db = getDb()
       const videoRef = doc(db, 'videos', videoId)
-      const likeRef = doc(db, `videos/${videoId}/likes`, fingerprint)
+      // Use userId as the like document ID — one like per account per video
+      const likeRef = doc(db, `videos/${videoId}/likes`, user.id)
 
       await runTransaction(db, async (transaction) => {
         const likeDoc = await transaction.get(likeRef)
@@ -76,30 +81,21 @@ export default function LikeButton({ videoId, initialLikes, onLikeChange }: Like
           throw new Error('Already liked')
         }
         transaction.set(likeRef, {
-          fingerprint,
+          userId: user.id,
           timestamp: new Date(),
         })
         transaction.update(videoRef, { likes: increment(1) })
       })
-
-      // Update local state
-      saveLikedVideo(videoId)
-      setLiked(true)
-      const newCount = count + 1
-      setCount(newCount)
-      onLikeChange?.(newCount)
-      spawnParticles()
-    } catch (err) {
-      console.error('Like error:', err)
+    } catch (err: any) {
+      if (err?.message !== 'Already liked') {
+        // Revert on error
+        setLiked(false)
+        setCount(prev => prev - 1)
+        onLikeChange?.(count)
+      }
     } finally {
       setIsLoading(false)
     }
-  }
-
-  const handleDoubleTap = () => {
-    setShowDouble(true)
-    setTimeout(() => setShowDouble(false), 800)
-    if (!liked) handleLike()
   }
 
   return (
@@ -123,8 +119,7 @@ export default function LikeButton({ videoId, initialLikes, onLikeChange }: Like
       <motion.button
         whileTap={{ scale: 0.85 }}
         onClick={handleLike}
-        onDoubleClick={handleDoubleTap}
-        disabled={liked || isLoading}
+        disabled={liked || isLoading || !user}
         className="relative flex flex-col items-center gap-1 group"
         aria-label={liked ? 'Already liked' : 'Like this video'}
       >
@@ -134,9 +129,11 @@ export default function LikeButton({ videoId, initialLikes, onLikeChange }: Like
           className={`
             w-12 h-12 rounded-full flex items-center justify-center
             transition-all duration-200 relative
-            ${liked 
-              ? 'bg-rose-500/20' 
-              : 'bg-black/30 group-hover:bg-white/10'
+            ${liked
+              ? 'bg-rose-500/20'
+              : !user
+                ? 'bg-black/20 opacity-50'
+                : 'bg-black/30 group-hover:bg-white/10'
             }
           `}
         >
@@ -149,7 +146,7 @@ export default function LikeButton({ videoId, initialLikes, onLikeChange }: Like
               ${liked ? 'text-rose-500 drop-shadow-[0_0_8px_rgba(255,59,92,0.8)]' : 'text-white'}
             `}
           />
-          
+
           {/* Ripple effect */}
           {liked && (
             <motion.div

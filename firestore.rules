@@ -11,12 +11,12 @@ service cloud.firestore {
       allow delete: if request.auth != null;
     }
 
-    // Likes sub-collection: prevent duplicates
-    match /videos/{videoId}/likes/{fingerprint} {
+    // Likes sub-collection: one like per account (userId = document ID)
+    match /videos/{videoId}/likes/{userId} {
       allow read: if true;
-      allow create: if request.auth == null
-                    && !exists(/databases/$(database)/documents/videos/$(videoId)/likes/$(fingerprint));
+      allow create: if !exists(/databases/$(database)/documents/videos/$(videoId)/likes/$(userId));
       allow delete: if false;
+      allow update: if false;
     }
 
     // Channels: public read, create allowed (managed by API)
