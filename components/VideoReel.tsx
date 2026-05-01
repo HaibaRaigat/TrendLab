@@ -20,8 +20,7 @@ export default function VideoReel({ video, isActive, index }: VideoReelProps) {
   const router = useRouter()
   const videoRef = useRef<HTMLVideoElement>(null)
   const [isPlaying, setIsPlaying] = useState(false)
-  // Always start muted — browsers block autoplay with sound before user interaction
-  const [isMuted, setIsMuted] = useState(true)
+  const [isMuted, setIsMuted] = useState(false)
   const [progress, setProgress] = useState(0)
   const [showPlayIcon, setShowPlayIcon] = useState(false)
   const [isDownloading, setIsDownloading] = useState(false)
@@ -56,19 +55,21 @@ export default function VideoReel({ video, isActive, index }: VideoReelProps) {
 
     if (isActive) {
       vid.currentTime = 0
-      // Always play muted first — browsers allow muted autoplay without user gesture
-      vid.muted = true
+      vid.muted = isMuted
 
       const playPromise = vid.play()
+
       if (playPromise !== undefined) {
         playPromise
-          .then(() => {
-            setIsPlaying(true)
-            // After autoplay succeeds, restore the user's mute preference
-            vid.muted = isMuted
-          })
-          .catch((err) => {
-            console.log('Autoplay blocked:', err)
+          .then(() => { setIsPlaying(true) })
+          .catch(() => {
+            const handleFirstInteraction = () => {
+              vid.muted = false
+              setIsMuted(false)
+              vid.play().then(() => setIsPlaying(true)).catch(console.error)
+            }
+            window.addEventListener('touchstart', handleFirstInteraction, { once: true })
+            window.addEventListener('click', handleFirstInteraction, { once: true })
           })
       }
     } else {

@@ -16,9 +16,6 @@ export const metadata: Metadata = {
     statusBarStyle: 'black-translucent',
     title: 'TrendLab',
   },
-  other: {
-    'mobile-web-app-capable': 'yes',
-  },
 
   // 2. إضافة الأيقونات الجديدة لضمان ظهورها بشكل احترافي
   icons: {
@@ -55,7 +52,6 @@ export default function RootLayout({
   return (
     <html lang="fr" className="dark">
       <head>
-        <meta name="mobile-web-app-capable" content="yes" />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
       </head>
